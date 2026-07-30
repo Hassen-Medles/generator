@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Radar Behaviour Simulator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>Radar Behaviour Simulator <span>v1.0</span></header>
+
+<div class="layout">
+
+  <aside>
+    <div>
+      <div class="label">Conditions</div>
+
+      <div class="cond-row" data-cond="reduced_mobility" onclick="toggleCond(this)">
+        <div class="cond-dot" style="background:#d97706"></div>
+        <span class="cond-name">Reduced Mobility</span>
+        <div class="sev-group">
+          <button class="sev-btn active" onclick="setSev(event,'reduced_mobility','mild')">Mild</button>
+          
+          <button class="sev-btn"        onclick="setSev(event,'reduced_mobility','severe')">Severe</button>
+        </div>
+      </div>
+
+      <div class="cond-row" data-cond="heart_failure" onclick="toggleCond(this)">
+        <div class="cond-dot" style="background:#dc2626"></div>
+        <span class="cond-name">Heart Failure</span>
+        <div class="sev-group">
+          <button class="sev-btn active" onclick="setSev(event,'heart_failure','mild')">Mild</button>
+          
+          <button class="sev-btn"        onclick="setSev(event,'heart_failure','severe')">Severe</button>
+        </div>
+      </div>
+
+      <div class="cond-row" data-cond="COPD" onclick="toggleCond(this)">
+        <div class="cond-dot" style="background:#2563eb"></div>
+        <span class="cond-name">COPD</span>
+        <div class="sev-group">
+          <button class="sev-btn active" onclick="setSev(event,'COPD','mild')">Mild</button>
+          
+          <button class="sev-btn"        onclick="setSev(event,'COPD','severe')">Severe</button>
+        </div>
+      </div>
+
+      <div class="cond-row" data-cond="sleep_disordered_breathing" onclick="toggleCond(this)">
+        <div class="cond-dot" style="background:#7c3aed"></div>
+        <span class="cond-name">Sleep-Disordered Breathing</span>
+        <div class="sev-group">
+          <button class="sev-btn active" onclick="setSev(event,'sleep_disordered_breathing','mild')">Mild</button>
+          
+          <button class="sev-btn"        onclick="setSev(event,'sleep_disordered_breathing','severe')">Severe</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Resident ID</label>
+      <input type="text" id="res-id" value="R001">
+    </div>
+
+    <div class="field">
+      <label>Simulation days - <span class="slider-val" id="days-val">180</span></label>
+      <input type="range" id="days" min="30" max="365" value="180"
+             oninput="document.getElementById('days-val').textContent=this.value">
+    </div>
+
+    <button class="run-btn" onclick="runSim()">Run Simulation</button>
+  </aside>
+
+  <main>
+    <div id="empty">
+      <h2>Configure a resident</h2>
+      <p>Select one or more conditions, then click Run Simulation.</p>
+    </div>
+
+    <div id="loading">
+      <div class="spinner"></div>
+      Generating synthetic data...
+    </div>
+
+    <div id="results">
+      <div class="badge">
+        <div class="badge-id" id="b-id"></div>
+        <div class="tags" id="b-tags"></div>
+        <div class="badge-days" id="b-days"></div>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat"><div class="stat-label">Acute event days</div><div class="stat-value" id="s-events">-</div><div class="stat-unit">days</div></div>
+        <div class="stat"><div class="stat-label">Avg sleep window</div><div class="stat-value" id="s-sleep">-</div><div class="stat-unit">hours/night</div></div>
+        <div class="stat"><div class="stat-label">Avg active duration</div><div class="stat-value" id="s-active">-</div><div class="stat-unit">min/day</div></div>
+        <div class="stat"><div class="stat-label">Avg night bathroom</div><div class="stat-value" id="s-bath">-</div><div class="stat-unit">visits/night</div></div>
+      </div>
+
+      <div class="charts-grid">
+        <div class="chart-card full">
+          <div class="chart-title">Latent severity trajectories</div>
+          <div class="chart-sub">z(t) per state - 0 = healthy, 1 = max severity. Dashed = anomaly threshold (0.3)</div>
+          <canvas id="c-traj"></canvas>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Active duration</div>
+          <div class="chart-sub">min/day</div>
+          <canvas id="c-active"></canvas>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Night bathroom visits</div>
+          <div class="chart-sub">count/night</div>
+          <canvas id="c-bath"></canvas>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Breathing rate</div>
+          <div class="chart-sub">br/min</div>
+          <canvas id="c-br"></canvas>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Sleep fragmentation index</div>
+          <div class="chart-sub">0 = none, 1 = fully fragmented</div>
+          <canvas id="c-frag"></canvas>
+        </div>
+      </div>
+
+      <div class="table-card">
+        <div class="table-hdr">
+          Daily summary - first 30 days
+          <button class="dl-btn" onclick="downloadCSV()">Download CSV</button>
+        </div>
+        <div style="overflow-x:auto">
+          <table>
+            <thead>
+              <tr id="table-head-row">
+              </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="script.js" defer></script>
+</body>
+</html>
