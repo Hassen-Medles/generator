@@ -119,23 +119,19 @@ def logit(p):
 def logit_inv(x):
     return 1 / (1 + np.exp(-x))
 
-def hazard_rate(z, lambda0, alpha, day=0, seasonal=False, beta=0.3):
-    rate = lambda0 * np.exp(alpha * z)
-    if seasonal:
-        rate *= (1 + beta * np.cos(2 * np.pi * day / 365))
-    return rate
+def hazard_rate(z, lambda0, alpha):
+    return lambda0 * np.exp(alpha * z)
 
 def generate_latent_trajectory(n_days, z0=0.05, B=0.97, drift=0.001,
                                 lambda0=0.02, alpha=2.0, jump_size=0.4,
-                                recovery=0.15, noise_sd=0.05,
-                                seasonal=False):
+                                recovery=0.15, noise_sd=0.05):
     z = np.zeros(n_days)
     z[0] = z0
     in_recovery = False
     recovery_signal = 0.0
     lambda_log = []
     for d in range(1, n_days):
-        lambda_d = hazard_rate(z[d-1], lambda0, alpha, day=d, seasonal=seasonal)
+        lambda_d = hazard_rate(z[d-1], lambda0, alpha)
         lambda_log.append(lambda_d)
 
         jump = 0.0
@@ -174,7 +170,6 @@ def get_latent_trajectory_params(state_key, conditions):
         'drift': 0.0,
         'lambda0': 0.02,
         'alpha': 2.0,
-        'seasonal': False,
     }
 
     if state_key == 'M_mobility':
@@ -200,29 +195,63 @@ def get_latent_trajectory_params(state_key, conditions):
 
     return params
 
-def generate_daily_features(traj_df, baseline, resident, disease_params):
-    records = []
-    for _, day in traj_df.iterrows():
-        row = {
-            'day':          int(day['day']),
-            'M_severity':   round(day['M_mobility'], 3),
-            'CP_severity':  round(day['CP_cardio'],  3),
-            'SDB_severity': round(day['SDB_sleep'],  3),
-        }
 
-        for feat, base_vals in baseline.items():
-            theta  = base_vals['theta']
-            phi    = base_vals['phi']
-            lo, hi = base_vals['bounds']
+DAYTIME_FEATURES = (
+    'chair_duration',
+    'daytime_bed_duration',
+    'inactive_duration',
+    'active_duration',
+    'large_motion_count',
+    'small_motion_count',
+)
+
+NIGHTTIME_FEATURES = (
+    'bed_occupancy_duration',
+    'sleep_window',
+    'small_motions_in_bed',
+    'large_motions_night',
+    'bed_exit_events',
+    'sleep_fragmentation_idx',
+    'night_bathroom_visits',
+)
+
+BREATHING_FEATURES = (
+    'breathing_rate_mean',
+    'breathing_rate_var',
+    'apnea_count',
+    'apnea_duration',
+    'cheyne_stokes_duration',
+)
+
+
+def _build_base_daily_frame(traj_df):
+    return pd.DataFrame({
+        'day':          traj_df['day'].astype(int),
+        'M_severity':   traj_df['M_mobility'].round(3),
+        'CP_severity':  traj_df['CP_cardio'].round(3),
+        'SDB_severity': traj_df['SDB_sleep'].round(3),
+    })
+
+
+def _generate_feature_block(traj_df, baseline, resident, feature_names, disease_params):
+    frame = _build_base_daily_frame(traj_df)
+
+    for feat in feature_names:
+        base_vals = baseline[feat]
+        theta = base_vals['theta']
+        phi = base_vals['phi']
+        lo, hi = base_vals['bounds']
+        values = []
+
+        for _, day in traj_df.iterrows():
             total_shift = 0.0
 
             for condition, severity_level in resident.conditions.items():
-                if condition not in disease_params:
+                if condition not in disease_params or feat not in disease_params[condition]:
                     continue
-                if feat not in disease_params[condition]:
-                    continue
-                params    = disease_params[condition][feat]
-                delta     = params['delta_severe'] if severity_level == 'severe' else params['delta_mild']
+
+                params = disease_params[condition][feat]
+                delta = params['delta_severe'] if severity_level == 'severe' else params['delta_mild']
                 z_current = day[STATE_MAP.get(condition, 'M_mobility')]
                 total_shift += z_current * delta
 
@@ -235,12 +264,37 @@ def generate_daily_features(traj_df, baseline, resident, disease_params):
                 value = np.clip(value, 0, 1)
 
             if base_vals['family'] in COUNT_FAMILIES:
-                row[feat] = int(max(0, round(value)))
+                values.append(int(max(0, round(value))))
             else:
-                row[feat] = round(float(value), 2)
+                values.append(round(float(value), 2))
 
-        records.append(row)
-    return pd.DataFrame(records)
+        frame[feat] = values
+
+    return frame
+
+
+def generate_daytime(traj_df, baseline, resident):
+    return _generate_feature_block(traj_df, baseline, resident, DAYTIME_FEATURES, DISEASE_PARAMS)
+
+
+def generate_nighttime(traj_df, baseline, resident):
+    return _generate_feature_block(traj_df, baseline, resident, NIGHTTIME_FEATURES, DISEASE_PARAMS)
+
+
+def generate_breathing(traj_df, baseline, resident):
+    return _generate_feature_block(traj_df, baseline, resident, BREATHING_FEATURES, DISEASE_PARAMS)
+
+def generate_daily_features(traj_df, baseline, resident, disease_params):
+    daytime = generate_daytime(traj_df, baseline, resident)
+    nighttime = generate_nighttime(traj_df, baseline, resident)
+    breathing = generate_breathing(traj_df, baseline, resident)
+
+    base_columns = ['day', 'M_severity', 'CP_severity', 'SDB_severity']
+    return pd.concat([
+        daytime,
+        nighttime.drop(columns=base_columns),
+        breathing.drop(columns=base_columns),
+    ], axis=1)
 
 def label_day(row, threshold=0.3):
     if row['M_severity']   > threshold: return 'mobility_decline'
